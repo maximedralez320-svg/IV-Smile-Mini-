@@ -161,10 +161,9 @@ with tabs[0]:
     with right:
         st.subheader("Results")
 
-        if not run:
-            st.info("Click Compute implied vols.")
-            st.stop()
-
+    if not run:
+        st.info("Click Compute implied vols.")
+    else:
         df = parse_lines_to_table(text)
 
         if df.empty:
