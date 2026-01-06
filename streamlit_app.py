@@ -20,8 +20,10 @@ class OptionInputs:
     q: float
     sigma: float
 
+
 def norm_cdf(x: float) -> float:
     return 0.5 * (1.0 + math.erf(x / math.sqrt(2.0)))
+
 
 def d1_d2(inp: OptionInputs) -> Tuple[float, float]:
     if inp.t <= 0 or inp.s <= 0 or inp.k <= 0 or inp.sigma <= 0:
@@ -30,6 +32,7 @@ def d1_d2(inp: OptionInputs) -> Tuple[float, float]:
     d1 = (math.log(inp.s / inp.k) + (inp.r - inp.q + 0.5 * inp.sigma * inp.sigma) * inp.t) / vol_sqrt_t
     d2 = d1 - vol_sqrt_t
     return d1, d2
+
 
 def bs_price(inp: OptionInputs, option_type: str) -> float:
     d1, d2 = d1_d2(inp)
@@ -41,6 +44,7 @@ def bs_price(inp: OptionInputs, option_type: str) -> float:
     if option_type == "call":
         return float(inp.s * disc_q * norm_cdf(d1) - inp.k * disc_r * norm_cdf(d2))
     return float(inp.k * disc_r * norm_cdf(-d2) - inp.s * disc_q * norm_cdf(-d1))
+
 
 def implied_vol_bisect(
     target_price: float,
@@ -114,15 +118,18 @@ def parse_lines_to_table(text: str) -> pd.DataFrame:
             continue
     return pd.DataFrame(rows, columns=["strike", "market_price"])
 
+
 def example_text() -> str:
-    return "\n".join([
-        "# strike, market_price",
-        "80, 22",
-        "90, 14",
-        "100, 8",
-        "110, 4",
-        "120, 2",
-    ])
+    return "\n".join(
+        [
+            "# strike, market_price",
+            "80, 22",
+            "90, 14",
+            "100, 8",
+            "110, 4",
+            "120, 2",
+        ]
+    )
 
 
 # -----------------------------
@@ -161,83 +168,72 @@ with tabs[0]:
     with right:
         st.subheader("Results")
 
-    if not run:
-        st.info("Click Compute implied vols.")
-    else:
-        df = parse_lines_to_table(text)
+        if not run:
+            st.info("Click Compute implied vols.")
+        else:
+            df = parse_lines_to_table(text)
 
-        if df.empty:
-            st.error("No valid rows found. Paste lines like: 100, 8.5")
-            st.stop()
+            if df.empty:
+                st.error("No valid rows found. Paste lines like: 100, 8.5")
+            else:
+                df = df.dropna().copy()
+                df = df[(df["strike"] > 0) & (df["market_price"] > 0)].copy()
 
-        df = df.dropna().copy()
-        df = df[(df["strike"] > 0) & (df["market_price"] > 0)].copy()
+                if len(df) < 3:
+                    st.error("Add at least 3 valid points to build a smile.")
+                else:
+                    base = OptionInputs(s=float(s), k=0.0, t=float(T), r=float(r), q=float(q), sigma=0.2)
 
-        if len(df) < 3:
-            st.error("Add at least 3 valid points to build a smile.")
-            st.stop()
+                    ivs = []
+                    for _, row in df.iterrows():
+                        k = float(row["strike"])
+                        mp = float(row["market_price"])
+                        base_k = OptionInputs(base.s, k, base.t, base.r, base.q, base.sigma)
+                        iv = implied_vol_bisect(mp, option_side, base_k)
+                        ivs.append(iv if iv is not None else np.nan)
 
-        base = OptionInputs(s=float(s), k=0.0, t=float(T), r=float(r), q=float(q), sigma=0.2)
+                    out = df.copy()
+                    out["iv"] = np.array(ivs, dtype=float)
+                    out = out.dropna(subset=["iv"]).sort_values("strike").reset_index(drop=True)
 
-        ivs = []
-        for _, row in df.iterrows():
-            k = float(row["strike"])
-            mp = float(row["market_price"])
-            base_k = OptionInputs(base.s, k, base.t, base.r, base.q, base.sigma)
-            iv = implied_vol_bisect(mp, option_side, base_k)
-            ivs.append(iv if iv is not None else np.nan)
+                    if out.empty:
+                        st.error("Could not compute implied vols. Check prices, maturity, and option side.")
+                    else:
+                        col1, col2, col3 = st.columns(3)
+                        col1.metric("Points used", f"{len(out)}")
+                        col2.metric(
+                            "ATM strike (closest)",
+                            f"{out.iloc[(out['strike'] - s).abs().argsort()[:1]]['strike'].iloc[0]:.2f}",
+                        )
+                        col3.metric("Avg IV", f"{out['iv'].mean() * 100:.2f}%")
 
-        out = df.copy()
-        out["iv"] = np.array(ivs, dtype=float)
-        out = out.dropna(subset=["iv"]).sort_values("strike").reset_index(drop=True)
+                        fig = plt.figure()
+                        plt.plot(out["strike"].values, out["iv"].values)
+                        plt.xlabel("Strike")
+                        plt.ylabel("Implied volatility")
+                        plt.title(f"IV Smile ({option_side})")
+                        st.pyplot(fig, clear_figure=True)
 
-        if out.empty:
-            st.error("Could not compute implied vols. Check prices, maturity, and option side.")
-            st.stop()
+                        st.dataframe(out, use_container_width=True)
 
-        col1, col2, col3 = st.columns(3)
-        col1.metric("Points used", f"{len(out)}")
-        col2.metric("ATM strike (closest)", f"{out.iloc[(out['strike']-s).abs().argsort()[:1]]['strike'].iloc[0]:.2f}")
-        col3.metric("Avg IV", f"{out['iv'].mean()*100:.2f}%")
+                        st.download_button(
+                            "Download CSV",
+                            data=out.to_csv(index=False).encode("utf-8"),
+                            file_name="iv_smile_manual.csv",
+                            mime="text/csv",
+                        )
 
-        fig = plt.figure()
-        plt.plot(out["strike"].values, out["iv"].values)
-        plt.xlabel("Strike")
-        plt.ylabel("Implied volatility")
-        plt.title(f"IV Smile ({option_side})")
-        st.pyplot(fig, clear_figure=True)
-
-        st.dataframe(out, use_container_width=True)
-
-        st.download_button(
-            "Download CSV",
-            data=out.to_csv(index=False).encode("utf-8"),
-            file_name="iv_smile_manual.csv",
-            mime="text/csv",
-        )
-
-        st.subheader("Quick sanity checks")
-        st.write("If IV looks wrong:")
-        st.write("1) Check option side (call vs put).")
-        st.write("2) Increase maturity days if prices are high.")
-        st.write("3) Use realistic prices: deep ITM options cost more than OTM.")
-
-tabs = st.tabs(["Application", "About the Author"])
-
-with tabs[0]:
-    st.subheader("Application")
-    st.write("Main content of the app goes here.")
+                        st.subheader("Quick sanity checks")
+                        st.write("If IV looks wrong:")
+                        st.write("1) Check option side (call vs put).")
+                        st.write("2) Increase maturity days if prices are high.")
+                        st.write("3) Use realistic prices: deep ITM options cost more than OTM.")
 
 with tabs[1]:
     st.subheader("About the Author")
     st.write("Author: Maxime Dralez")
     st.write("LinkedIn:")
-    st.link_button(
-        "Open LinkedIn profile",
-        "https://www.linkedin.com/in/maxime-dralez-finance"
-    )
+    st.link_button("Open LinkedIn profile", "https://www.linkedin.com/in/maxime-dralez-finance")
     st.write("")
     st.write("This app is a small educational tool.")
-    st.write(
-        "It turns a list of market quotes into an implied volatility smile you can export."
-    )
+    st.write("It turns a list of market quotes into an implied volatility smile you can export.")
