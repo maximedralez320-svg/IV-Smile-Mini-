@@ -223,11 +223,22 @@ with tabs[0]:
         st.write("2) Increase maturity days if prices are high.")
         st.write("3) Use realistic prices: deep ITM options cost more than OTM.")
 
+tabs = st.tabs(["Application", "About the Author"])
+
+with tabs[0]:
+    st.subheader("Application")
+    st.write("Main content of the app goes here.")
+
 with tabs[1]:
     st.subheader("About the Author")
     st.write("Author: Maxime Dralez")
     st.write("LinkedIn:")
-    st.link_button("Open LinkedIn profile", "https://www.linkedin.com/in/maxime-dralez-finance")
+    st.link_button(
+        "Open LinkedIn profile",
+        "https://www.linkedin.com/in/maxime-dralez-finance"
+    )
     st.write("")
     st.write("This app is a small educational tool.")
-    st.write("It turns a list of market quotes into an implied volatility smile you can export.")
+    st.write(
+        "It turns a list of market quotes into an implied volatility smile you can export."
+    )
